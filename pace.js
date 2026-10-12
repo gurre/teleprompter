@@ -27,6 +27,7 @@ const Pace = (() => {
   const MIN_SPEECH_SHARE = 0.65; // a run of speech is at least this voiced
   const SMOOTH = 5; // words either side the glide speed is averaged over
   const JUMP = 3; // words; a longer highlight move is a jump, not speech
+  const LOOK_FORWARD = 1; // words the highlight may lead the next recognized word
   const DWELL = 0.5; // of a word's duration, the least a highlight step lasts
 
   function create(rate = INITIAL_RATE, latency = LATENCY) {
@@ -95,12 +96,15 @@ const Pace = (() => {
   // the scroller's easing lead, which the highlight does not need. While
   // the presenter is talking it is rounded, so the mark moves on halfway
   // through a word, a small look forward; when they are silent it rests on
-  // the next word to say. At the end of the script it stays on the last word.
+  // the next word to say. It stays tied to what was recognized: never before
+  // the next word, never more than LOOK_FORWARD beyond it, so a projection
+  // that runs ahead of the voice cannot pull the mark away. At the end of the
+  // script it stays on the last word.
   function highlightWord(s, spoken, wordCount, cap = Infinity, talking = true) {
     if (s.index === null) return null;
     const said = spoken - pace(s, cap) * EASE;
     const word = talking ? Math.round(said) : Math.floor(said);
-    return Math.min(wordCount - 1, Math.max(s.index + 1, word));
+    return Math.min(wordCount - 1, s.index + 1 + LOOK_FORWARD, Math.max(s.index + 1, word));
   }
 
   // stepHighlight moves the shown highlight toward target one word at a

@@ -26,7 +26,14 @@ microphone every time.
 
 ## Before you speak
 
-The first word shows whether the prompter is ready:
+The editor asks for everything it needs up front, so no browser prompt ends up
+hidden behind the fullscreen prompter. The **Permissions** panel on the right
+lists each one and its status: microphone, speech recognition, keeping the
+screen awake, and fullscreen. If something is blocked, allow it in the
+browser's site settings and press **Ask again**.
+
+Each time the prompter opens, the word you start (or resume) from shows
+whether it is ready:
 
 - **Flashing green underline:** ready. Start speaking and the text follows you.
 - **Steady red underline:** something is not ready yet. The status line says
@@ -34,14 +41,17 @@ The first word shows whether the prompter is ready:
   voice can't be followed at all, press Space and the text scrolls at the
   optimal pace instead.
 
+If a permission is missing, a red banner says which for 10 seconds; the
+status line keeps the detail.
+
 ## While you speak
 
 - **The text follows you.** It glides at your speaking pace, and the word you
   are saying sits on the highlighted reading line. After looking at the
   audience, your eyes land in the same place every time.
-- **The underlined word is where you are.** It is never behind the last word
-  recognized: it marks the next one, and looks a little ahead while you talk.
-  When you pause it rests on the next word to say. It moves one word at a
+- **The underlined word is where you are.** It stays tied to what was
+  recognized: it marks the next word, and looks at most one word further
+  while you talk. When you pause it settles on the next word to say. It moves one word at a
   time and never skips a word, except for real jumps (going back to the top,
   a skipped sentence).
 - **A faint gray line** glides under the word you would be on at the optimal
@@ -52,9 +62,11 @@ The first word shows whether the prompter is ready:
   the time left. Each moves one way only: time left pauses rather than
   counting back up. With a target set, it also shows "on time", "0:20 early"
   or "0:40 over", changing in 5-second steps.
-- **At the last word the timer stops** and the top bar sums up the talk:
-  "Ended 1m 1s over", "Ended 20s early" or "Ended on time" against your
-  target, or "Ended after 4m 12s" without one.
+- **At the end the timer stops** and a card in the middle of the screen sums
+  up the talk: "Ended 1m 1s over", "Ended 20s early" or "Ended on time"
+  against your target, or "Ended after 4m 12s" without one. It ends at the
+  last word, or when you go quiet within the last few words (the very last
+  word is often not recognized as you stop).
 
 How the following behaves:
 
@@ -78,8 +90,9 @@ How the following behaves:
 
 - **Nothing is lost.** The script, settings, your place and the speech timer are
   saved as you go. Within 30 minutes, Start says "Resume at N%" and picks up
-  where you were, timer included. An older session (yesterday's rehearsal) is
-  only offered as a second button; Start begins at the top.
+  at the start of the sentence you were in, timer included. An older session
+  (yesterday's rehearsal) is only offered as a second button, and a finished
+  talk is not resumed; Start begins at the top.
 - **Losing fullscreen keeps you going.** If Esc or a notification takes you
   out of fullscreen, the prompter keeps running. F brings fullscreen back. Esc
   when not fullscreen returns to the editor.

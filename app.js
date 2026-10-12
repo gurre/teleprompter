@@ -19,14 +19,19 @@
   const CONFIRM_MS = 1500; // second press window for T (restart timer)
   const ON_TIME_MS = Timing.ON_TIME_MS; // schedule readout step
   const PAUSE_FOR_ONSET = 0.5; // s of silence before speech counts as resuming
+  const END_WORDS = 2; // within this many words of the end, quiet ends the talk
+  const END_QUIET = 2.5; // s of quiet near the end that ends the talk
+  const SETTLE = 0.3; // s of silence (after the meter's hangover) before the highlight settles
   const REPEATABLE = new Set(['+', '=', '-']);
+  const NOTICE_MS = 10000; // how long a missing-permission banner shows
+  const MIC_BLOCKED = 'Microphone blocked: allow it in the browser’s site settings to follow your voice.';
 
   const $ = (id) => document.getElementById(id);
   const ui = {
     editor: $('editor'), input: $('script'), stats: $('stats'), lang: $('lang'),
     hint: $('voice-hint'), start: $('start'), restart: $('restart'), target: $('target'),
-    recall: $('recall'), recallAmount: $('recall-amount'),
-    prompter: $('prompter'), text: $('text'), paceLine: $('pace-line'), progress: $('progress'), status: $('status'),
+    recall: $('recall'), recallAmount: $('recall-amount'), permissions: $('permissions'),
+    prompter: $('prompter'), notice: $('notice'), end: $('end'), text: $('text'), paceLine: $('pace-line'), progress: $('progress'), status: $('status'),
     clock: $('clock'), elapsed: $('elapsed'), left: $('left'),
   };
 
@@ -102,6 +107,139 @@
       ? 'Voice-follow works best served from localhost (see README); opened as a file the browser may ask for the microphone every time.'
       : 'Voice-follow uses the browser’s speech service. In Chrome it needs internet.';
 
+  // ---- Permissions -----------------------------------------------------------
+
+  // Everything is asked for here, on the editor: a permission prompt can end
+  // up hidden behind the fullscreen prompter. Each permission is checking,
+  // asking, allowed, blocked, unavailable or unasked.
+  const PERMISSIONS = [
+    ['microphone', 'Microphone'],
+    ['speech', 'Speech recognition'],
+    ['wakeLock', 'Keep screen awake'],
+    ['fullscreen', 'Fullscreen'],
+  ];
+  const PERMISSION_TEXT = {
+    checking: 'checking…',
+    asking: 'answer the browser’s prompt…',
+    allowed: 'allowed ✓',
+    blocked: 'blocked',
+    unavailable: 'not available',
+    unasked: 'not asked yet',
+  };
+  const perms = {
+    microphone: { state: 'checking', detail: '' },
+    speech: Voice.supported() ? { state: 'checking', detail: '' } : { state: 'unavailable', detail: 'use Safari or Chrome' },
+    wakeLock: 'wakeLock' in navigator ? { state: 'checking', detail: '' } : { state: 'unavailable', detail: 'the screen may sleep' },
+    fullscreen: document.fullscreenEnabled ? { state: 'allowed', detail: '' } : { state: 'unavailable', detail: '' },
+  };
+  let permRequest = null;
+
+  // requestPermissions asks for the microphone, then speech recognition, and
+  // tries the wake lock, updating the list as the answers come in.
+  function requestPermissions() {
+    permRequest ??= (async () => {
+      await askMicrophone();
+      if (perms.speech.state !== 'unavailable') {
+        if (perms.microphone.state === 'allowed') await askSpeech();
+        else setPermission('speech', 'unasked', 'needs the microphone');
+      }
+      await tryWakeLock();
+      permRequest = null;
+      renderPermissions();
+    })();
+    return permRequest;
+  }
+
+  async function askMicrophone() {
+    setPermission('microphone', 'asking');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setPermission('microphone', 'allowed');
+    } catch (err) {
+      setPermission('microphone', err.name === 'NotAllowedError' ? 'blocked' : 'unavailable', err.message);
+    }
+  }
+
+  async function askSpeech() {
+    setPermission('speech', 'asking');
+    try {
+      await Voice.warmUp(settings.lang);
+      setPermission('speech', 'allowed');
+    } catch (err) {
+      const refused = err.code === 'not-allowed' || err.code === 'service-not-allowed';
+      setPermission('speech', refused ? 'blocked' : 'unavailable', err.message);
+    }
+  }
+
+  // tryWakeLock takes the wake lock and lets go at once, to learn whether the
+  // browser will keep the screen awake during the talk.
+  async function tryWakeLock() {
+    if (perms.wakeLock.state === 'unavailable') return;
+    try {
+      const lock = await navigator.wakeLock.request('screen');
+      await lock.release();
+      setPermission('wakeLock', 'allowed');
+    } catch (err) {
+      setPermission('wakeLock', 'blocked', err.message);
+    }
+  }
+
+  function setPermission(name, state, detail = '') {
+    perms[name] = { state, detail };
+    renderPermissions();
+  }
+
+  // needsAsking is true while the microphone or speech recognition has not
+  // been answered: Start asks first, so the prompt shows here.
+  function needsAsking() {
+    return ['microphone', 'speech'].some((name) => ['checking', 'asking', 'unasked'].includes(perms[name].state));
+  }
+
+  function renderPermissions() {
+    const list = document.createElement('ul');
+    for (const [name, label] of PERMISSIONS) {
+      const { state, detail } = perms[name];
+      const item = document.createElement('li');
+      item.className = state;
+      item.textContent = `${label}: ${PERMISSION_TEXT[state]}${detail && state !== 'allowed' ? ` (${detail})` : ''}`;
+      list.append(item);
+    }
+    const parts = [list];
+    const states = Object.values(perms).map((p) => p.state);
+    if (states.includes('blocked')) parts.push(Object.assign(document.createElement('p'), { textContent: 'Blocked? Allow it in the browser’s site settings, then ask again.' }));
+    if (!permRequest && (states.includes('blocked') || states.includes('unasked'))) {
+      const again = document.createElement('button');
+      again.textContent = 'Ask again';
+      again.addEventListener('click', requestPermissions);
+      parts.push(again);
+    }
+    ui.permissions.replaceChildren(...parts);
+  }
+
+  // Ask straight away, unless the browser already says the microphone is
+  // blocked; follow changes made in the browser's site settings meanwhile.
+  function checkPermissions() {
+    if (!navigator.permissions) return requestPermissions();
+    navigator.permissions
+      .query({ name: 'microphone' })
+      .then((status) => {
+        status.addEventListener('change', () => {
+          if (status.state === 'denied') setPermission('microphone', 'blocked');
+          else if (status.state === 'granted' && perms.microphone.state !== 'allowed') requestPermissions();
+        });
+        if (status.state !== 'denied') return requestPermissions();
+        setPermission('microphone', 'blocked');
+        if (perms.speech.state !== 'unavailable') setPermission('speech', 'unasked', 'needs the microphone');
+        return tryWakeLock();
+      })
+      // This browser cannot be asked about the microphone: just ask for it.
+      .catch(() => requestPermissions());
+  }
+
+  renderPermissions();
+  checkPermissions();
+
   // fillEditor shows the stored settings in the editor's fields.
   function fillEditor() {
     ui.input.value = settings.script;
@@ -127,7 +265,8 @@
 
     const session = read(SESSION_KEY);
     const resume = session && { ...session, percent: Math.round((session.word / Math.max(words, 1)) * 100) };
-    const fresh = resume && Date.now() - resume.savedAt < SESSION_FRESH_MS;
+    // A finished talk is not resumed: Start begins at the top again.
+    const fresh = resume && !resume.endedAt && Date.now() - resume.savedAt < SESSION_FRESH_MS;
     offer = fresh ? { primary: resume, secondary: 'top' } : { primary: 'top', secondary: resume };
     ui.start.firstChild.textContent = fresh ? `Resume at ${resume.percent}% ` : 'Start ';
     ui.restart.hidden = !resume;
@@ -140,13 +279,20 @@
   function startOffered(which) {
     const choice = offer[which];
     if (choice === 'top') return enter(null);
-    // An old session keeps its place but not its timer.
-    const fresh = Date.now() - choice.savedAt < SESSION_FRESH_MS;
+    // An old or finished session keeps its place but not its timer.
+    const fresh = !choice.endedAt && Date.now() - choice.savedAt < SESSION_FRESH_MS;
     enter(fresh ? choice : { ...choice, startedAt: null });
   }
 
-  ui.start.addEventListener('click', () => startOffered('primary'));
-  ui.restart.addEventListener('click', () => startOffered('secondary'));
+  // start waits for unanswered permissions first, so their prompts show here
+  // rather than behind the fullscreen prompter.
+  async function start(which) {
+    if (needsAsking()) await requestPermissions();
+    startOffered(which);
+  }
+
+  ui.start.addEventListener('click', () => start('primary'));
+  ui.restart.addEventListener('click', () => start('secondary'));
 
   // Another tab changed the script or settings: show them, unless presenting.
   window.addEventListener('storage', (e) => {
@@ -205,6 +351,10 @@
   let savedWord = -1;
   let paceWord = -1; // word the pace line is under
   let cue = { word: -1, kind: '' }; // the ready / not ready underline
+  let engaged = false; // the prompter has picked the presenter up since opening
+  let anchor = 0; // word the prompter starts or resumes from; the cue sits on it
+  let notices = new Map(); // missing permissions on the banner, by kind
+  let noticeTimer = 0;
 
   // Screen
   let wakeLock = null;
@@ -229,7 +379,10 @@
     ui.prompter.hidden = false;
     render();
     const word = Scroller.clamp(session?.word ?? 0, 0, spans.length - 1);
-    scroll = { position: tops[word], target: tops[word], max: scroll.max };
+    // Resuming picks up at the start of the sentence: that is where a
+    // presenter naturally starts again.
+    anchor = session ? sentenceStart(word) : word;
+    scroll = { position: tops[anchor], target: tops[anchor], max: scroll.max };
     autoF = Pace.indexAt(lines, scroll.target);
     playing = false;
     timer = session?.startedAt
@@ -238,6 +391,9 @@
     readout = { elapsed: null, left: null, slack: null };
     savedWord = paceWord = -1;
     cue = { word: -1, kind: '' };
+    engaged = false;
+    clearNotices();
+    checkMicrophone();
     wakeWarning = screenWarning = '';
     startVoice();
     goFullscreen();
@@ -250,6 +406,7 @@
   function exit() {
     if (!active) return;
     active = false;
+    clearNotices();
     cancelAnimationFrame(frameId);
     stopVoice();
     wakeLock?.release();
@@ -274,6 +431,7 @@
       })
       .catch((err) => {
         screenWarning = `not fullscreen (${err.message}) · F to retry`;
+        notify('fullscreen', 'Fullscreen was refused: press F to try again.');
         renderStatus();
       });
   }
@@ -382,9 +540,9 @@
     const word = currentWord();
     if (timer.startedAt !== null && timer.endedAt === null && finished()) {
       timer.endedAt = Date.now(); // the timer stops on the last word
-      saveSession(word);
+      saveSession(resumeWord());
     }
-    if (word !== savedWord) saveSession(word);
+    if (resumeWord() !== savedWord) saveSession(resumeWord());
     renderHud(word);
     renderPaceLine();
     renderCue();
@@ -396,6 +554,19 @@
     frameId = requestAnimationFrame(frame);
   }
 
+  // sentenceStart is the first word of the sentence word i is in.
+  function sentenceStart(i) {
+    while (i > 0 && !doc.words[i].sentenceStart) i--;
+    return i;
+  }
+
+  // resumeWord is where to pick up after a break: the next word after the
+  // last one recognized (not the projection, which runs a little ahead).
+  function resumeWord() {
+    if (voiceFailed) return Math.min(Math.floor(autoF), spans.length - 1);
+    return Math.min(follow.cursor + 1, spans.length - 1);
+  }
+
   // currentWord is the word being read: the one being said, or the one the
   // optimal-pace scroll has reached.
   function currentWord() {
@@ -404,8 +575,17 @@
   }
 
   // finished is true once the presenter has reached the last word.
+  // It does not need the very last word recognized: a jump to the closing
+  // words has no next word to confirm it, and the last word is often lost as
+  // the presenter stops. Reaching the last few words, then quiet, ends it too.
   function finished() {
-    return voiceFailed ? autoF >= spans.length : follow.cursor >= spans.length - 1;
+    if (voiceFailed) return autoF >= spans.length;
+    const last = spans.length - 1;
+    if (follow.cursor >= last) return true;
+    if (follow.pending !== null && follow.pending >= last - END_WORDS) return true;
+    if (pace.index === null || follow.cursor < last - END_WORDS) return false;
+    const now = performance.now() / 1000;
+    return now - pace.at >= END_QUIET && (!meter || Vad.voicedBetween(voicedLog, now - END_QUIET, now) === 0);
   }
 
   // holdPace is the pace (words/s) that ends the talk exactly on its target
@@ -455,12 +635,12 @@
     ui.paceLine.style.width = `${b.width}px`;
   }
 
-  // renderCue marks the first word before the talk starts: flashing green
-  // when the prompter is ready to follow, steady red while something is not.
+  // renderCue marks the word to start (or resume) from each time the
+  // prompter opens, until it has picked the presenter up: flashing green when
+  // it is ready to follow, steady red while something is not.
   function renderCue() {
-    const started = timer.startedAt !== null;
-    const word = started ? -1 : wordAt(scroll.target);
-    const kind = started ? '' : ready() ? 'ready' : 'not-ready';
+    const word = engaged ? -1 : anchor;
+    const kind = engaged ? '' : ready() ? 'ready' : 'not-ready';
     if (word === cue.word && kind === cue.kind) return;
     spans[cue.word]?.classList.remove('ready', 'not-ready');
     cue = { word, kind };
@@ -472,6 +652,37 @@
   function ready() {
     if (voiceFailed) return false;
     return Boolean(voice) && voice.active() && listening && !voiceError;
+  }
+
+  // notify shows a banner about a missing permission for NOTICE_MS, so it is
+  // seen without staying in the way; the status line keeps the detail.
+  function notify(kind, text) {
+    if (notices.get(kind) === text && !ui.notice.hidden) return;
+    notices.set(kind, text);
+    ui.notice.textContent = [...notices.values()].join('\n');
+    ui.notice.hidden = false;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(clearNotices, NOTICE_MS);
+  }
+
+  function clearNotices() {
+    clearTimeout(noticeTimer);
+    notices = new Map();
+    ui.notice.hidden = true;
+  }
+
+  // checkMicrophone reports a microphone that is already blocked as soon as
+  // the prompter opens, rather than after the first failed attempt.
+  function checkMicrophone() {
+    if (!Voice.supported() || !navigator.permissions) return;
+    navigator.permissions
+      .query({ name: 'microphone' })
+      .then((p) => {
+        if (active && p.state === 'denied') notify('microphone', MIC_BLOCKED);
+      })
+      // Browsers that cannot be asked about the microphone: the first attempt
+      // to use it reports the problem instead.
+      .catch(() => {});
   }
 
   // ---- HUD ------------------------------------------------------------------
@@ -501,6 +712,12 @@
     ui.elapsed.textContent = Timing.format(readout.elapsed);
     ui.left.textContent = schedule ? `${leftText} · ${schedule}` : leftText;
     ui.left.classList.toggle('over', schedule.endsWith('over') || leftText.endsWith('over'));
+    // The end card: how the talk went, in the middle of the screen.
+    ui.end.hidden = timer.endedAt === null;
+    if (timer.endedAt !== null) {
+      ui.end.firstChild.textContent = leftText;
+      ui.end.classList.toggle('over', leftText.endsWith('over'));
+    }
   }
 
   // restartReadouts lets time left and the schedule move freely once, after
@@ -535,7 +752,7 @@
   // ---- Voice ----------------------------------------------------------------
 
   function startVoice() {
-    follow = { cursor: wordAt(scroll.target) - 1, pending: null };
+    follow = { cursor: anchor - 1, pending: null };
     pace = Pace.create();
     spoken = null;
     voiceError = '';
@@ -545,12 +762,15 @@
       lang: settings.lang,
       normalize: Script.normalize,
       onWords: (heard, fresh) => voice === v && onSpeech(heard, fresh),
-      onState: (state, detail) => {
+      onState: (state, detail, code) => {
         if (voice !== v) return; // a recognizer we already replaced
         listening = state === 'listening';
         if (state === 'error') voiceError = detail;
         // An error that retrying cannot fix: scroll at the optimal pace.
-        if (state === 'error' && !v.active()) failVoice();
+        if (state === 'error' && !v.active()) {
+          failVoice();
+          notify('microphone', code === 'not-allowed' ? MIC_BLOCKED : `Can’t follow your voice: ${detail}.`);
+        }
         renderStatus();
       },
     });
@@ -579,6 +799,7 @@
     } catch (err) {
       if (voice !== v) return;
       meterWarning = `no level meter (${err.message}): pauses may overshoot`;
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') notify('microphone', MIC_BLOCKED);
     }
     renderStatus();
   }
@@ -609,6 +830,7 @@
     const moved = next.cursor !== from;
     follow = next;
     if (!moved) return;
+    engaged = true;
     if (settings.recall) {
       for (const i of Follower.said(norms, Math.max(0, from - 1), follow.cursor, heard)) markSaid(i);
       reveal(follow.cursor);
@@ -653,7 +875,15 @@
     spoken = Math.min(Math.max(spoken ?? f, f), spans.length - 0.001);
     scroll.target = Math.max(scroll.target, Pace.offset(lines, spoken));
     const talking = !meter || loudNow;
-    const target = Pace.highlightWord(pace, spoken, spans.length, hold, talking);
+    // After a moment of silence the mark settles on the next word to say, the
+    // one after the last recognized: the small look forward taken while
+    // talking may have gone one too far.
+    const settled = meter && pace.index !== null && Vad.voicedBetween(voicedLog, t - SETTLE, t) === 0;
+    const target = settled ? Math.min(pace.index + 1, spans.length - 1) : Pace.highlightWord(pace, spoken, spans.length, hold, talking);
+    if (settled && highlighted > target) {
+      highlightedAt = t;
+      return highlight(target);
+    }
     const next = Pace.stepHighlight(highlighted, target, t - highlightedAt, Pace.pace(pace, hold));
     if (next !== highlighted) highlightedAt = t;
     highlight(next);
@@ -674,7 +904,8 @@
     restartReadouts();
     autoF = Pace.indexAt(lines, scroll.target);
     if (voiceFailed) return;
-    follow = { cursor: wordAt(scroll.target) - 1, pending: null };
+    anchor = wordAt(scroll.target);
+    follow = { cursor: anchor - 1, pending: null };
     revealedUpTo = Math.max(revealedUpTo, follow.cursor); // moved past: not attempted
     pace = Pace.create(pace.rate, pace.latency);
     spoken = null;
@@ -727,6 +958,7 @@
   function togglePlay() {
     if (voiceFailed) {
       playing = !playing && autoF < spans.length;
+      if (playing) engaged = true;
       if (playing) startTimer();
       return renderStatus();
     }
@@ -793,7 +1025,7 @@
       // ⌘↵ starts what Start offers.
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        startOffered('primary');
+        start('primary');
       }
       return;
     }
@@ -837,6 +1069,7 @@
       });
     } catch (err) {
       wakeWarning = `screen may sleep (${err.message})`;
+      notify('wake', 'The screen may sleep: the browser would not keep it awake.');
     }
     renderStatus();
   }

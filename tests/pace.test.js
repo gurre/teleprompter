@@ -213,20 +213,25 @@ test('the highlight is never before the word after the last one recognized', () 
 });
 
 test('the highlight moves on halfway through a word', () => {
-  const s = speak(2.5, 10);
+  const s = speak(2.5, 12); // last recognized: word 11
   const lead = s.rate * Pace.EASE;
   assert.equal(Pace.highlightWord(s, 12.4 + lead, 100), 12);
   assert.equal(Pace.highlightWord(s, 12.6 + lead, 100), 13);
 });
 
 test('at the end of the script the highlight stays on the last word', () => {
-  const s = speak(2.5, 10);
-  assert.equal(Pace.highlightWord(s, 10.9, 10), 9);
-  assert.equal(Pace.highlightWord(s, 30, 20), 19);
+  assert.equal(Pace.highlightWord(speak(2.5, 10), 10.9, 10), 9);
+  assert.equal(Pace.highlightWord(speak(2.5, 19), 30, 20), 19);
+});
+
+test('the highlight stays tied to what was recognized', () => {
+  const s = speak(2.5, 10); // last recognized: word 9
+  // However far the projection runs ahead, the mark leads the next word by one at most.
+  for (const spoken of [12, 15, 40]) assert.equal(Pace.highlightWord(s, spoken, 100), 11, `spoken ${spoken}`);
 });
 
 test('when the presenter is silent the highlight rests on the next word', () => {
-  const s = speak(2.5, 10);
+  const s = speak(2.5, 11); // last recognized: word 10
   const lead = s.rate * Pace.EASE;
   assert.equal(Pace.highlightWord(s, 11.7 + lead, 100, Infinity, true), 12);
   assert.equal(Pace.highlightWord(s, 11.7 + lead, 100, Infinity, false), 11);

@@ -37,6 +37,10 @@
           </datalist>
         </label>
         <p id="voice-hint" class="hint"></p>
+        <section class="permissions" aria-label="Permissions">
+          <h2>Permissions</h2>
+          <div id="permissions"></div>
+        </section>
         <button id="start">Start <kbd>⌘/Ctrl ↵</kbd></button>
         <button id="restart" hidden>Start from the top</button>
         <details>
@@ -64,6 +68,8 @@
       <span id="left"></span>
     </div>
     <div id="progress"></div>
+    <div id="notice" role="alert" hidden></div>
+    <div id="end" hidden><span></span><small>T T restarts the timer · Esc, Esc for the editor</small></div>
     <div id="status"></div>
   </section>
 

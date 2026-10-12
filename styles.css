@@ -169,3 +169,52 @@ dd { margin: 0; color: var(--dim); }
 #text .recall-ok { color: #3ddc84; } /* recalled */
 #text .recall-miss { color: #ff6b6b; } /* missed */
 #recall-amount.off { opacity: .4; }
+
+/* Missing permissions: a banner that shows for a while, then gets out of the way. */
+#notice {
+  position: absolute;
+  top: 3.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: 80%;
+  padding: .8rem 1.4rem;
+  background: #b00020;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: pre-line;
+}
+
+/* Permissions, listed in the sidebar and asked for before the prompter opens. */
+.permissions { padding: .7rem .8rem; border: 1px solid #333; border-radius: 8px; font-size: .85rem; }
+.permissions h2 { margin: 0 0 .4rem; font-size: .9rem; font-weight: 600; }
+.permissions ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .25rem; }
+.permissions li { color: var(--dim); }
+.permissions li.allowed { color: #3ddc84; }
+.permissions li.blocked { color: #ff6b6b; }
+.permissions li.asking { color: var(--accent); }
+.permissions p { margin: .5rem 0 0; color: var(--dim); }
+.permissions button { margin-top: .5rem; padding: .3rem .8rem; background: var(--accent); color: #000; border: 0; border-radius: 6px; font-weight: 600; cursor: pointer; }
+
+/* The end card: how the talk went. */
+#end {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: grid;
+  gap: .6rem;
+  padding: 1.6rem 2.4rem;
+  background: rgba(20, 20, 20, .92);
+  border: 2px solid #3ddc84;
+  border-radius: 14px;
+  text-align: center;
+}
+#end span { font-size: clamp(2rem, 5vw, 4rem); font-weight: 700; color: #3ddc84; }
+#end.over { border-color: #ff6b6b; }
+#end.over span { color: #ff6b6b; }
+#end small { color: var(--dim); font-size: 1rem; }

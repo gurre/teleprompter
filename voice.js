@@ -4,6 +4,7 @@
 // restarts with a short backoff. Errors that retrying cannot fix stop it.
 const Voice = (() => {
   const TAIL = 8; // words handed to the follower per result
+  const WARM_UP_MS = 15000; // how long warmUp waits for a permission answer
   const USED_TAIL = 2; // consumed words remembered to recognize them again; finding a
   // later repeat of them only makes fewer words fresh, so short is safe
   const Recognition = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -23,7 +24,7 @@ const Voice = (() => {
   // create returns { start, stop, reset, consume, active }. onWords receives
   // the last normalized words and how many of them are fresh (heard since the
   // last consume()); onState receives ('listening' | 'stopped' | 'error',
-  // message).
+  // message, the browser's error code).
   function create({ lang, normalize, onWords, onState }) {
     if (!Recognition) throw new Error('speech recognition is not supported in this browser');
     let rec = null;
@@ -59,7 +60,7 @@ const Voice = (() => {
         if (e.error === 'no-speech' || e.error === 'aborted') return;
         if (FATAL[e.error]) wanted = false;
         else failures++;
-        onState('error', FATAL[e.error] ?? `speech recognition: ${e.error}`);
+        onState('error', FATAL[e.error] ?? `speech recognition: ${e.error}`, e.error);
       };
       r.onend = () => {
         if (rec === r) rec = null;
@@ -136,7 +137,35 @@ const Voice = (() => {
     };
   }
 
-  return { supported, create };
+  // warmUp starts recognition once and stops it, so the browser asks for its
+  // permissions now, while the editor is showing (Safari asks for speech
+  // recognition separately from the microphone). It rejects with the reason
+  // when they are refused, and gives up after WARM_UP_MS without an answer.
+  function warmUp(lang) {
+    return new Promise((resolve, reject) => {
+      const r = new Recognition();
+      r.lang = lang;
+      const timer = setTimeout(() => {
+        r.abort();
+        resolve();
+      }, WARM_UP_MS);
+      r.onstart = () => {
+        clearTimeout(timer);
+        r.abort();
+        resolve();
+      };
+      r.onerror = (e) => {
+        if (e.error === 'aborted' || e.error === 'no-speech') return;
+        clearTimeout(timer);
+        const err = new Error(FATAL[e.error] ?? `speech recognition: ${e.error}`);
+        err.code = e.error;
+        reject(err);
+      };
+      r.start();
+    });
+  }
+
+  return { supported, create, warmUp };
 })();
 
 if (typeof module !== 'undefined') module.exports = Voice;
