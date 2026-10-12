@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recall the Teleprompter</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section id="editor">
+    <header>
+      <h1>Recall the Teleprompter</h1>
+      <span id="stats"></span>
+    </header>
+    <main>
+      <textarea id="script" spellcheck="false" placeholder="Paste your script here.&#10;&#10;Blank lines separate paragraphs."></textarea>
+      <aside>
+        <label>Font size <output id="font-size-out"></output>
+          <input type="range" id="font-size" min="24" max="160" step="2">
+        </label>
+        <label>Text width <output id="width-out"></output>
+          <input type="range" id="width" min="40" max="100" step="5">
+        </label>
+        <label>Target length <span class="hint">m:ss — sets the optimal pace; without one it is 140 wpm</span>
+          <input id="target" placeholder="none, e.g. 10:00" autocomplete="off" inputmode="numeric">
+        </label>
+        <label class="check"><input type="checkbox" id="recall"> Recall practice <span class="hint">hide words to rehearse from memory</span></label>
+        <label id="recall-amount">Words hidden <output id="recall-percent-out"></output>
+          <input type="range" id="recall-percent" min="10" max="95" step="5">
+        </label>
+        <label>Speech language
+          <input id="lang" list="langs" autocomplete="off">
+          <datalist id="langs">
+            <option value="en-US"><option value="en-GB"><option value="sv-SE">
+            <option value="de-DE"><option value="fr-FR"><option value="es-ES">
+          </datalist>
+        </label>
+        <p id="voice-hint" class="hint"></p>
+        <button id="start">Start <kbd>⌘/Ctrl ↵</kbd></button>
+        <button id="restart" hidden>Start from the top</button>
+        <details>
+          <summary>Keys</summary>
+          <dl>
+            <dt>Space</dt><dd>pause / resume listening (without voice: scroll at the optimal pace)</dd>
+            <dt>+ −</dt><dd>font size</dd>
+            <dt>R</dt><dd>recall practice: reveal the next hidden word</dd>
+            <dt>T T</dt><dd>restart speech timer (press twice)</dd>
+            <dt>F</dt><dd>back to fullscreen</dd>
+            <dt>Home</dt><dd>back to top</dd>
+            <dt>Esc Esc</dt><dd>leave fullscreen, then back to editor (resume later)</dd>
+          </dl>
+        </details>
+      </aside>
+    </main>
+  </section>
+
+  <section id="prompter" hidden>
+    <div id="text"><div id="pace-line"></div></div>
+    <div id="reading-line"></div>
+    <div id="hud">
+      <span id="clock"></span>
+      <span id="elapsed"></span>
+      <span id="left"></span>
+    </div>
+    <div id="progress"></div>
+    <div id="status"></div>
+  </section>
+
+  <script src="script.js"></script>
+  <script src="follower.js"></script>
+  <script src="scroller.js"></script>
+  <script src="pace.js"></script>
+  <script src="timing.js"></script>
+  <script src="recall.js"></script>
+  <script src="vad.js"></script>
+  <script src="voice.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
