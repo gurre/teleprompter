@@ -5,9 +5,12 @@ press Start, and speak: the text follows your voice. It runs entirely in the
 browser with no install, no build and no account, and your script stays on
 your machine.
 
+> [!NOTE]
+> Safari (or Chrome) recommended. Others not supported.
+
 ## Run it
 
-Open **https://gurre.github.io/teleprompter/** in Chrome or Safari. Nothing to
+Open **https://gurre.github.io/teleprompter/** in Safari or Chrome. Nothing to
 install; your script stays in your browser.
 
 Or run it from this folder. Serve it from localhost so the browser remembers
@@ -49,6 +52,9 @@ The first word shows whether the prompter is ready:
   the time left. Each moves one way only: time left pauses rather than
   counting back up. With a target set, it also shows "on time", "0:20 early"
   or "0:40 over", changing in 5-second steps.
+- **At the last word the timer stops** and the top bar sums up the talk:
+  "Ended 1m 1s over", "Ended 20s early" or "Ended on time" against your
+  target, or "Ended after 4m 12s" without one.
 
 How the following behaves:
 

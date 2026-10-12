@@ -63,7 +63,7 @@ dd { margin: 0; color: var(--dim); }
 
 /* Prompter */
 
-#prompter { position: fixed; inset: 0; background: #000; overflow: hidden; cursor: none; }
+#prompter { position: fixed; inset: 0; background: #000; overflow: hidden; }
 
 /* Fade text that has already been read. */
 #prompter::before {

@@ -4,6 +4,7 @@ const Timing = (() => {
   const DEFAULT_WPM = 140; // typical presenting pace
   const MIN_SAMPLE_MS = 15000; // measured pace is trusted after this much talking
   const MIN_SAMPLE_WORDS = 20;
+  const ON_TIME_MS = 5000; // closer to the target than this is on time
 
   // remainingMs estimates time left for wordsLeft words. Given a rate
   // (words/s, as auto-scroll knows exactly) it uses that; otherwise the
@@ -62,6 +63,26 @@ const Timing = (() => {
     return prev === null || Math.abs(value - prev) >= step ? Math.round(value / step) * step : prev;
   }
 
+  // endText sums up a finished talk: against its target if it had one
+  // ("Ended 1m 1s over", "Ended 20s early", "Ended on time"), else its
+  // length ("Ended after 4m 12s").
+  function endText(targetMs, elapsedMs) {
+    if (!targetMs) return `Ended after ${spoken(elapsedMs)}`;
+    const slack = slackMs(targetMs, elapsedMs, 0);
+    if (Math.abs(slack) < ON_TIME_MS) return 'Ended on time';
+    return slack > 0 ? `Ended ${spoken(slack)} early` : `Ended ${spoken(-slack)} over`;
+  }
+
+  // spoken renders ms the way people say it: "45s", "1m 1s", "1h 2m 3s".
+  function spoken(ms) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h) return `${h}h ${m}m ${s}s`;
+    return m ? `${m}m ${s}s` : `${s}s`;
+  }
+
   // format renders ms as m:ss, or h:mm:ss from one hour.
   function format(ms) {
     if (!Number.isFinite(ms)) return '–:––';
@@ -72,7 +93,7 @@ const Timing = (() => {
     return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
   }
 
-  return { remainingMs, format, parseTarget, targetRate, slackMs, countDown, countUp, steady, DEFAULT_WPM };
+  return { remainingMs, format, spoken, endText, parseTarget, targetRate, slackMs, countDown, countUp, steady, DEFAULT_WPM, ON_TIME_MS };
 })();
 
 if (typeof module !== 'undefined') module.exports = Timing;

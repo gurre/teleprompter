@@ -17,7 +17,7 @@
   const LINE_HEIGHT = 1.5; // matches #text line-height
   const SESSION_FRESH_MS = 30 * 60000; // older sessions are offered, not assumed
   const CONFIRM_MS = 1500; // second press window for T (restart timer)
-  const ON_TIME_MS = 5000; // schedule readout step
+  const ON_TIME_MS = Timing.ON_TIME_MS; // schedule readout step
   const PAUSE_FOR_ONSET = 0.5; // s of silence before speech counts as resuming
   const REPEATABLE = new Set(['+', '=', '-']);
 
@@ -196,7 +196,7 @@
   let autoF = 0; // fractional word position reached
 
   // Time
-  let timer = { startedAt: null, startWord: 0 }; // speech timer
+  let timer = { startedAt: null, startWord: 0, endedAt: null }; // speech timer
   let timerConfirm = 0; // when T was first pressed
   let readout = { elapsed: null, left: null, slack: null }; // what the HUD shows
   let hold = Infinity; // pace that ends on target (see holdPace)
@@ -232,7 +232,9 @@
     scroll = { position: tops[word], target: tops[word], max: scroll.max };
     autoF = Pace.indexAt(lines, scroll.target);
     playing = false;
-    timer = session?.startedAt ? { startedAt: session.startedAt, startWord: session.startWord ?? 0 } : { startedAt: null, startWord: word };
+    timer = session?.startedAt
+      ? { startedAt: session.startedAt, startWord: session.startWord ?? 0, endedAt: session.endedAt ?? null }
+      : { startedAt: null, startWord: word, endedAt: null };
     readout = { elapsed: null, left: null, slack: null };
     savedWord = paceWord = -1;
     cue = { word: -1, kind: '' };
@@ -378,6 +380,10 @@
     ui.text.style.transform = `translateY(${-scroll.position}px)`;
     ui.progress.style.transform = `scaleX(${scroll.max ? scroll.position / scroll.max : 1})`;
     const word = currentWord();
+    if (timer.startedAt !== null && timer.endedAt === null && finished()) {
+      timer.endedAt = Date.now(); // the timer stops on the last word
+      saveSession(word);
+    }
     if (word !== savedWord) saveSession(word);
     renderHud(word);
     renderPaceLine();
@@ -395,6 +401,11 @@
   function currentWord() {
     if (voiceFailed) return Math.min(Math.floor(autoF), spans.length);
     return Math.min(Math.floor(spoken ?? follow.cursor + 1), spans.length);
+  }
+
+  // finished is true once the presenter has reached the last word.
+  function finished() {
+    return voiceFailed ? autoF >= spans.length : follow.cursor >= spans.length - 1;
   }
 
   // holdPace is the pace (words/s) that ends the talk exactly on its target
@@ -423,7 +434,7 @@
 
   function saveSession(word) {
     savedWord = word;
-    const session = { word, startedAt: timer.startedAt, startWord: timer.startWord, savedAt: Date.now() };
+    const session = { word, startedAt: timer.startedAt, startWord: timer.startWord, endedAt: timer.endedAt, savedAt: Date.now() };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   }
 
@@ -467,7 +478,7 @@
 
   function renderHud(word) {
     const now = Date.now();
-    const elapsedMs = timer.startedAt === null ? 0 : now - timer.startedAt;
+    const elapsedMs = timer.startedAt === null ? 0 : (timer.endedAt ?? now) - timer.startedAt;
     const wordsLeft = spans.length - word;
     const left = voiceFailed
       ? Timing.remainingMs({ wordsLeft, rate: optimalRate() })
@@ -476,20 +487,20 @@
     readout.elapsed = Timing.countUp(readout.elapsed, elapsedMs);
     readout.left = Timing.countDown(readout.left, left);
     let schedule = '';
-    if (settings.target) {
+    if (settings.target && timer.endedAt === null) {
       readout.slack = Timing.steady(readout.slack, Timing.slackMs(settings.target, elapsedMs, left), ON_TIME_MS);
       const slack = readout.slack;
       schedule = Math.abs(slack) < ON_TIME_MS ? 'on time' : slack > 0 ? `${Timing.format(slack)} early` : `${Timing.format(-slack)} over`;
     }
     const clock = new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const leftText = wordsLeft <= 0 ? 'done' : `−${Timing.format(readout.left)} left`;
+    const leftText = timer.endedAt !== null ? Timing.endText(settings.target, elapsedMs) : `−${Timing.format(readout.left)} left`;
     const text = `${clock}|${Timing.format(readout.elapsed)}|${leftText}|${schedule}`;
     if (text === hudText) return;
     hudText = text;
     ui.clock.textContent = clock;
     ui.elapsed.textContent = Timing.format(readout.elapsed);
     ui.left.textContent = schedule ? `${leftText} · ${schedule}` : leftText;
-    ui.left.classList.toggle('over', schedule.endsWith('over'));
+    ui.left.classList.toggle('over', schedule.endsWith('over') || leftText.endsWith('over'));
   }
 
   // restartReadouts lets time left and the schedule move freely once, after
@@ -500,7 +511,7 @@
 
   function startTimer() {
     if (timer.startedAt !== null) return;
-    timer = { startedAt: Date.now(), startWord: currentWord() };
+    timer = { startedAt: Date.now(), startWord: currentWord(), endedAt: null };
     paceWord = -1;
     saveSession(savedWord);
   }
@@ -514,7 +525,7 @@
       return flash('press T again to restart the timer');
     }
     timerConfirm = 0;
-    timer = { startedAt: now, startWord: currentWord() };
+    timer = { startedAt: now, startWord: currentWord(), endedAt: null };
     paceWord = -1;
     restartReadouts(true);
     saveSession(savedWord);

@@ -98,3 +98,16 @@ test('the schedule moves in whole steps and does not flicker on noise', () => {
   assert.equal(Timing.steady(10000, 15100, 5000), 15000);
   assert.equal(Timing.steady(10000, 5000, 5000), 5000);
 });
+
+test('durations read the way people say them', () => {
+  assert.equal(Timing.spoken(45000), '45s');
+  assert.equal(Timing.spoken(61000), '1m 1s');
+  assert.equal(Timing.spoken(3723000), '1h 2m 3s');
+});
+
+test('a finished talk is summed up against its target', () => {
+  assert.equal(Timing.endText(600000, 661000), 'Ended 1m 1s over');
+  assert.equal(Timing.endText(600000, 580000), 'Ended 20s early');
+  assert.equal(Timing.endText(600000, 603000), 'Ended on time');
+  assert.equal(Timing.endText(0, 252000), 'Ended after 4m 12s');
+});
