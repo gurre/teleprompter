@@ -7,7 +7,11 @@ your machine.
 
 ## Run it
 
-Serve it from localhost so the browser remembers the microphone permission:
+Open **https://gurre.github.io/teleprompter/** in Chrome or Safari. Nothing to
+install; your script stays in your browser.
+
+Or run it from this folder. Serve it from localhost so the browser remembers
+the microphone permission:
 
 ```sh
 python3 -m http.server 8000   # in this directory
