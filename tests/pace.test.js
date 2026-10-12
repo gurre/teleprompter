@@ -206,17 +206,20 @@ test('a level meter that hears too little of the speech is not trusted', () => {
   assert.equal(ok.trusted, true);
 });
 
-test('the highlight is never before the word after the last one recognized', () => {
+test('the highlight is two words past the last recognized while talking, one when silent', () => {
   const s = speak(2.5, 10); // last recognized: word 9
-  for (const spoken of [5, 9.2, 10, 10.4]) assert.equal(Pace.highlightWord(s, spoken, 100), 10, `spoken ${spoken}`);
+  for (const spoken of [5, 9.2, 10, 10.4]) {
+    assert.equal(Pace.highlightWord(s, spoken, 100, Infinity, true), 11, `talking, spoken ${spoken}`);
+    assert.equal(Pace.highlightWord(s, spoken, 100, Infinity, false), 10, `silent, spoken ${spoken}`);
+  }
   assert.equal(Pace.highlightWord(Pace.create(), 3, 100), null, 'nothing before the first match');
 });
 
 test('the highlight moves on halfway through a word', () => {
   const s = speak(2.5, 12); // last recognized: word 11
   const lead = s.rate * Pace.EASE;
-  assert.equal(Pace.highlightWord(s, 12.4 + lead, 100), 12);
-  assert.equal(Pace.highlightWord(s, 12.6 + lead, 100), 13);
+  assert.equal(Pace.highlightWord(s, 13.4 + lead, 100), 13);
+  assert.equal(Pace.highlightWord(s, 13.6 + lead, 100), 14);
 });
 
 test('at the end of the script the highlight stays on the last word', () => {
@@ -226,8 +229,8 @@ test('at the end of the script the highlight stays on the last word', () => {
 
 test('the highlight stays tied to what was recognized', () => {
   const s = speak(2.5, 10); // last recognized: word 9
-  // However far the projection runs ahead, the mark leads the next word by one at most.
-  for (const spoken of [12, 15, 40]) assert.equal(Pace.highlightWord(s, spoken, 100), 11, `spoken ${spoken}`);
+  // However far the projection runs ahead, the mark is at most three words past it.
+  for (const spoken of [13, 15, 40]) assert.equal(Pace.highlightWord(s, spoken, 100), 12, `spoken ${spoken}`);
 });
 
 test('when the presenter is silent the highlight rests on the next word', () => {
