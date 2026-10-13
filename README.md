@@ -24,6 +24,9 @@ open http://localhost:8000
 Opening `index.html` directly also works, but the browser may ask for the
 microphone every time.
 
+After updating the files, reload without the cache (Safari ⌥⌘R, Chrome ⇧⌘R):
+this server lets the browser keep old copies.
+
 ## Before you speak
 
 The editor asks for everything it needs up front, so no browser prompt ends up
@@ -104,7 +107,7 @@ How the following behaves:
 |---|---|
 | Space | pause / resume listening (without voice: start / pause the optimal-pace scroll) |
 | + − | font size |
-| R | recall practice: reveal the next hidden word |
+| R | recall practice: reveal the next hidden word; voice prompter: say the next words; talk in ear: read again from where you are |
 | T T | restart the speech timer (press twice) |
 | F | back to fullscreen |
 | Home | back to the top |
@@ -126,6 +129,104 @@ start. The slider sets how many: 10–95% of the words.
   recognition shows you did say it. Recognition errors can make a correctly
   said word red, so read red as "not heard", not as proof.
 - Stuck? **R** reveals the next hidden word, uncoloured. A hint is not a recall.
+
+## Voice prompter
+
+Tick **Voice prompter** in the editor to get help without looking down. The
+text shows as usual; when you stall, a voice in your earphones says what comes
+next, like a theatre prompter. It is meant for AirPods (or any earphones)
+with the Mac on the lectern.
+
+- **It stays silent while you talk.** After a moment of silence (the
+  **Silence before a prompt** slider, 0.2–3 s, 1 s by default) it says the
+  next words, up to three, ending on the first one that carries meaning
+  ("the future", not "the"). Below about 0.3 s, a pause between two words can
+  already count as a stall.
+- **Still quiet?** After the same wait again it says the phrase, up to four
+  words. Then it waits for you; it never reads on by itself.
+- **Pauses between sentences are yours.** Before a new sentence it waits
+  twice as long, before a new paragraph three times.
+- **When it does not know where you are, it says nothing.** After about four
+  seconds of talking that matches nothing in the script (an ad-lib), it
+  waits until you are back on the script. **R** says the next words anyway.
+- **Before you start, R says your first words**, which also checks where the
+  sound plays once you are connected to the venue.
+- **It says what you might not see.** "Ready" when it is listening, "Prompts
+  off" when speech recognition has been down for five seconds ("Prompts on"
+  when it is back), and why prompts stopped if it cannot follow your voice
+  or hear the room.
+- It works alongside **recall practice**: R then says the next words and
+  reveals the next hidden word.
+
+**Test the prompt voice** in the editor says a sample, so you can hear where
+prompts play and how loud. If the Samantha voice is missing, the editor says
+so next to the option. Once it is on, the Permissions panel shows the
+**Prompt voice**, and why a prompt did not play if one did not.
+
+Trade-offs:
+
+- Prompts are always said in the **Samantha** voice. Without it (System
+  Settings → Accessibility → Spoken Content) the option cannot be ticked. She
+  speaks English, so a script in another language is pronounced as English.
+- **Use earphones.** Through speakers the room hears the prompts.
+- **Keep the prompter in front.** In a hidden tab or a minimized window it
+  stops prompting, and says so when the browser tells. Covered by another
+  window it may stop without saying.
+- Where the browser tells which device sound plays on, prompts pause if the
+  sound moves (HDMI plugged in, earphones out) and resume when it moves back.
+  R still plays, wherever the sound is: it is how you check. The status line
+  says when the device is not watched.
+- A prompt plays to its end even if you start speaking.
+- The waits are first guesses. Try them in a rehearsal.
+
+## Talk in ear
+
+Tick **Talk in ear** in the editor and a voice in your earphones reads the
+script a few words ahead of you, the way a news presenter works with an ear
+prompter: you hear a phrase, then say it. You keep your eyes on the audience
+the whole time.
+
+- **You set the tempo.** It reads a little faster than you speak (1.3× your
+  pace) and follows you as you speed up or slow down, so it stays ahead and
+  pauses between phrases rather than falling behind. When you catch up with
+  it, it speeds up further (up to 1.6×).
+- **Talking from memory, you can run ahead of it.** Once you pass the word
+  it is on, it drops the rest of that phrase and goes on from where you are.
+- **When you pause, it waits.** It is never more than the **Reads ahead**
+  number of words (2–8, 4 by default) past where you are. Stop to take a
+  question and it goes quiet, then carries on as you do.
+- **It reads in phrases.** It stops at commas and full stops, and otherwise
+  waits until it can say at least three words, so you never hear it one word
+  at a time.
+- **It starts as soon as the prompter is listening**: it reads your opening
+  words and waits for you. **R** reads again from where you are: the opening you missed while walking on,
+  or a phrase you lost.
+- **If it hears itself, it stops.** If the microphone picks up the voice, it
+  would follow itself and read the whole talk alone. When words are
+  recognized sooner after the voice than you could repeat them, it holds
+  still for a moment. If you carry on talking, it goes on. If everything
+  stops with it, it says "I can hear myself. Talk in ear is off."
+- **It reads in the Samantha voice**, the best quality installed first.
+  Without her (System Settings → Accessibility → Spoken Content) the option
+  cannot be ticked. The Permissions panel shows the voice. She speaks
+  English, so a script in another language is pronounced as English.
+
+It and the voice prompter are never both on: ticking one unticks the other.
+
+Trade-offs:
+
+- **Use earphones, with the Mac's own microphone.** Through speakers the room
+  hears the voice and it hears itself. With AirPods as the microphone, macOS
+  drops them to call quality.
+- **Short gaps between phrases** (a tenth to a third of a second) come from
+  the browser starting each one; they sound like breaths.
+- **A lead of 2 or 3 words is short for a fast speaker.** At 200 wpm that is
+  under a second, less than the voice needs to start a phrase, so it may
+  hold you up. From 4 words it keeps up.
+- **AirPods fall asleep after some seconds of silence**, so the first word
+  after a long pause may be clipped. Press **R** if you missed it.
+- **Use it in a rehearsal first.** How far ahead suits you, and how the voice
+  sounds in your earphones, can only be found by trying.
 
 ## Target length
 

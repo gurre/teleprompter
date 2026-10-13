@@ -218,3 +218,8 @@ dd { margin: 0; color: var(--dim); }
 #end.over { border-color: #ff6b6b; }
 #end.over span { color: #ff6b6b; }
 #end small { color: var(--dim); font-size: 1rem; }
+
+#voice-prompter-options { display: flex; flex-direction: column; gap: .5rem; }
+#voice-prompter-options.off { opacity: .4; }
+#voice-prompter-test { padding: .4rem; background: none; color: var(--fg); border: 1px solid #333; border-radius: 8px; cursor: pointer; }
+#ear-options.off { opacity: .4; }

@@ -9,9 +9,9 @@
 (() => {
   const STORE_KEY = 'teleprompter';
   const SESSION_KEY = 'teleprompter.session';
-  const DEFAULTS = { script: '', fontSize: 64, width: 70, lang: 'en-US', target: 0, recall: false, recallPercent: 30 };
-  const RANGES = { fontSize: 'font-size', width: 'width', recallPercent: 'recall-percent' };
-  const UNITS = { fontSize: 'px', width: '%', recallPercent: '%' };
+  const DEFAULTS = { script: '', fontSize: 64, width: 70, lang: 'en-US', target: 0, recall: false, recallPercent: 30, voicePrompter: false, promptAfter: 1, ear: false, earLead: 4 };
+  const RANGES = { fontSize: 'font-size', width: 'width', recallPercent: 'recall-percent', promptAfter: 'prompt-after', earLead: 'ear-lead' };
+  const UNITS = { fontSize: 'px', width: '%', recallPercent: '%', promptAfter: ' s', earLead: ' words' };
   const LIMITS = { fontSize: [24, 160] };
   const OPTIMAL_WPM = 140; // a comfortable presenting pace
   const LINE_HEIGHT = 1.5; // matches #text line-height
@@ -25,12 +25,21 @@
   const REPEATABLE = new Set(['+', '=', '-']);
   const NOTICE_MS = 10000; // how long a missing-permission banner shows
   const MIC_BLOCKED = 'Microphone blocked: allow it in the browser’s site settings to follow your voice.';
+  // Voice prompter
+  const ECHO = 0.5; // s after a prompt during which sound is the prompt (Bluetooth plays late)
+  const SPOKE = 0.3; // s of voice after a prompt that count as the presenter speaking (not a cough)
+  const LOST = 4; // s of talking without a match after which where they are is too uncertain to prompt
+  const OFF_AFTER = 5; // s recognition is down before "Prompts off" is said
+  const RESTART_GAP = 2; // s recognition may restart in without stopping prompts
+  const HIDDEN_FOR = 1; // s the page stays hidden before "Prompter hidden" is said
 
   const $ = (id) => document.getElementById(id);
   const ui = {
     editor: $('editor'), input: $('script'), stats: $('stats'), lang: $('lang'),
     hint: $('voice-hint'), start: $('start'), restart: $('restart'), target: $('target'),
     recall: $('recall'), recallAmount: $('recall-amount'), permissions: $('permissions'),
+    voicePrompter: $('voice-prompter'), voicePrompterHint: $('voice-prompter-hint'), voicePrompterOptions: $('voice-prompter-options'), voicePrompterTest: $('voice-prompter-test'),
+    ear: $('ear'), earHint: $('ear-hint'), earOptions: $('ear-options'),
     prompter: $('prompter'), notice: $('notice'), end: $('end'), text: $('text'), paceLine: $('pace-line'), progress: $('progress'), status: $('status'),
     clock: $('clock'), elapsed: $('elapsed'), left: $('left'),
   };
@@ -94,6 +103,91 @@
   function renderRecall() {
     ui.recall.checked = settings.recall;
     ui.recallAmount.classList.toggle('off', !settings.recall);
+  }
+
+  // Prompts are said in the Samantha voice only; without it the voice
+  // prompter cannot be switched on.
+  const speaker = VoicePrompter.speaker(() => renderVoicePrompter());
+
+  ui.voicePrompter.addEventListener('change', () => {
+    settings.voicePrompter = ui.voicePrompter.checked;
+    save();
+    renderVoicePrompter();
+  });
+
+  // Test says a whole sentence and how the script starts, so the presenter
+  // hears where prompts play and how loud before the talk. A single word can
+  // be lost entirely while Bluetooth earphones wake up from silence.
+  ui.voicePrompterTest.addEventListener('click', () => {
+    const { words } = Script.parse(settings.script);
+    const start = words.length ? ` Your talk starts: ${VoicePrompter.text(words, VoicePrompter.phrase(words, 0))}` : '';
+    speaker.say(`This is how prompts will sound.${start}`);
+  });
+
+  function renderVoicePrompter() {
+    const ok = speaker.available();
+    ui.voicePrompter.checked = settings.voicePrompter;
+    ui.voicePrompter.disabled = ui.voicePrompterTest.disabled = !ok;
+    ui.voicePrompterHint.textContent = ok
+      ? 'when you stall, hear what comes next in your earphones'
+      : 'needs the Samantha voice: add it in System Settings → Accessibility → Spoken Content';
+    ui.voicePrompterOptions.classList.toggle('off', !settings.voicePrompter || !ok);
+    renderPermissions();
+  }
+
+  // promptVoice is the prompt voice as a row of the permissions list: it is
+  // what a silent Test is explained by.
+  function promptVoice() {
+    const { kind, detail } = speaker.state();
+    if (kind === 'loading') return { state: 'checking', detail: '' };
+    if (kind === 'ready') return { state: 'allowed', detail };
+    return { state: 'unavailable', detail };
+  }
+
+  // Talk in ear reads in the Samantha voice only; without it talk in ear
+  // cannot be switched on. It and the voice prompter are never both on: two
+  // voices in one ear.
+  const earSpeaker = Ear.speaker(() => renderEar());
+
+  ui.ear.addEventListener('change', () => {
+    settings.ear = ui.ear.checked;
+    if (settings.ear && settings.voicePrompter) {
+      settings.voicePrompter = false;
+      renderVoicePrompter();
+    }
+    save();
+    renderEar();
+  });
+
+  // Ticking the voice prompter unticks talk in ear, as ticking talk in ear
+  // unticks the voice prompter.
+  ui.voicePrompter.addEventListener('change', () => {
+    if (!ui.voicePrompter.checked || !settings.ear) return;
+    settings.ear = false;
+    save();
+    renderEar();
+  });
+
+  function renderEar() {
+    const { kind } = earSpeaker.state();
+    const ok = kind === 'ready';
+    ui.ear.checked = settings.ear;
+    ui.ear.disabled = !ok;
+    ui.earHint.textContent = ok
+      ? 'Samantha reads just ahead of you at your pace; you repeat it'
+      : kind === 'loading'
+        ? 'looking for a voice…'
+        : 'needs the Samantha voice: add it in System Settings → Accessibility → Spoken Content';
+    ui.earOptions.classList.toggle('off', !settings.ear || !ok);
+    renderPermissions();
+  }
+
+  // earVoice is the talk-in-ear voice as a row of the permissions list.
+  function earVoice() {
+    const { kind, detail } = earSpeaker.state();
+    if (kind === 'loading') return { state: 'checking', detail: '' };
+    if (kind === 'ready') return { state: 'allowed', detail };
+    return { state: 'unavailable', detail };
   }
 
   ui.lang.addEventListener('input', () => {
@@ -198,8 +292,10 @@
 
   function renderPermissions() {
     const list = document.createElement('ul');
-    for (const [name, label] of PERMISSIONS) {
-      const { state, detail } = perms[name];
+    const rows = PERMISSIONS.map(([name, label]) => [label, perms[name]]);
+    if (settings.voicePrompter) rows.push(['Prompt voice', promptVoice()]);
+    if (settings.ear) rows.push(['Talk-in-ear voice', earVoice()]);
+    for (const [label, { state, detail }] of rows) {
       const item = document.createElement('li');
       item.className = state;
       item.textContent = `${label}: ${PERMISSION_TEXT[state]}${detail && state !== 'allowed' ? ` (${detail})` : ''}`;
@@ -247,6 +343,8 @@
     ui.target.value = settings.target ? Timing.format(settings.target) : '';
     ui.lang.value = settings.lang;
     renderRecall();
+    renderVoicePrompter();
+    renderEar();
     renderEditor();
   }
 
@@ -285,8 +383,11 @@
   }
 
   // start waits for unanswered permissions first, so their prompts show here
-  // rather than behind the fullscreen prompter.
+  // rather than behind the fullscreen prompter. Sound is unlocked before
+  // that wait, while the click or key press still allows it.
   async function start(which) {
+    if (settings.voicePrompter && speaker.available()) speaker.unlock();
+    if (settings.ear) earSpeaker.unlock();
     if (needsAsking()) await requestPermissions();
     startOffered(which);
   }
@@ -317,6 +418,7 @@
   // Voice follow
   let voice = null; // recognizer, unless this browser has none
   let listening = false;
+  let deafSince = -Infinity; // s, when recognition last stopped listening
   let voiceError = ''; // sticky until speech is heard again
   let voiceFailed = false; // voice cannot work here: scroll at the optimal pace
   let follow = { cursor: -1, pending: null }; // see Follower.step
@@ -336,6 +438,21 @@
   let hidden = []; // word index → hidden behind a gray box
   let revealedUpTo = -1; // hidden words up to here have been passed and shown
   let heardOk = new Set(); // words the presenter was heard saying
+
+  // Voice prompter: a presenter who stalls hears what comes next
+  let voicePrompter = false;
+  let ladder = VoicePrompter.create(); // see VoicePrompter.step
+  let heardAt = -Infinity; // s, when the presenter was last loud (prompts left out)
+  let heardSincePrompt = 0; // s of the presenter's voice since the last prompt
+  let announced = false; // "Ready" has been said
+  let troubleSaid = false; // "Prompts off" has been said
+  let hiddenSaid = false; // "Prompter hidden" has been said
+  let hiddenTimer = 0;
+  let output = { start: '', now: '' }; // where sound plays, when the browser tells (Chrome)
+
+  // Talk in ear: a voice reads just ahead of the presenter
+  let earOn = false;
+  let ear = Ear.create(); // see Ear.next
 
   // Scrolling at the optimal pace, where voice cannot work
   let playing = false;
@@ -375,6 +492,18 @@
     }
     active = true;
     norms = doc.words.map((w) => w.norm);
+    clearNotices();
+    voicePrompter = settings.voicePrompter && speaker.available() && Voice.supported();
+    if (settings.voicePrompter && !voicePrompter) {
+      const why = !Voice.supported()
+        ? 'this browser cannot follow your voice'
+        : speaker.state().kind === 'loading'
+          ? 'the prompt voice was still loading; leave and start again'
+          : speaker.state().detail;
+      notify('voice-prompter', `Voice prompter is off: ${why}.`);
+    }
+    enterEar();
+    enterVoicePrompter();
     ui.editor.hidden = true;
     ui.prompter.hidden = false;
     render();
@@ -382,6 +511,7 @@
     // Resuming picks up at the start of the sentence: that is where a
     // presenter naturally starts again.
     anchor = session ? sentenceStart(word) : word;
+    ear = Ear.create(anchor - 1);
     scroll = { position: tops[anchor], target: tops[anchor], max: scroll.max };
     autoF = Pace.indexAt(lines, scroll.target);
     playing = false;
@@ -392,7 +522,6 @@
     savedWord = paceWord = -1;
     cue = { word: -1, kind: '' };
     engaged = false;
-    clearNotices();
     checkMicrophone();
     wakeWarning = screenWarning = '';
     startVoice();
@@ -409,6 +538,8 @@
     clearNotices();
     cancelAnimationFrame(frameId);
     stopVoice();
+    speaker.stop();
+    leaveEar();
     wakeLock?.release();
     wakeLock = null;
     if (document.fullscreenElement) document.exitFullscreen();
@@ -533,6 +664,8 @@
     } else {
       listen(now / 1000, dt);
       glide(now / 1000);
+      if (voicePrompter) promptStall(now / 1000);
+      if (earOn) talkInEar(now / 1000);
     }
     scroll = Scroller.step(scroll, dt);
     ui.text.style.transform = `translateY(${-scroll.position}px)`;
@@ -752,6 +885,7 @@
   // ---- Voice ----------------------------------------------------------------
 
   function startVoice() {
+    deafSince = -Infinity;
     follow = { cursor: anchor - 1, pending: null };
     pace = Pace.create();
     spoken = null;
@@ -764,7 +898,9 @@
       onWords: (heard, fresh) => voice === v && onSpeech(heard, fresh),
       onState: (state, detail, code) => {
         if (voice !== v) return; // a recognizer we already replaced
+        const was = listening;
         listening = state === 'listening';
+        if (was && !listening) deafSince = performance.now() / 1000;
         if (state === 'error') voiceError = detail;
         // An error that retrying cannot fix: scroll at the optimal pace.
         if (state === 'error' && !v.active()) {
@@ -785,6 +921,8 @@
     autoF = Pace.indexAt(lines, scroll.target);
     playing = false;
     highlight(-1);
+    leaveVoicePrompter('Voice lost. Prompts are off.');
+    leaveEar('Voice lost. Talk in ear is off.');
   }
 
   // openMeter starts the voice activity meter that lets the glide stop when
@@ -800,6 +938,7 @@
       if (voice !== v) return;
       meterWarning = `no level meter (${err.message}): pauses may overshoot`;
       if (err.name === 'NotAllowedError' || err.name === 'SecurityError') notify('microphone', MIC_BLOCKED);
+      leaveVoicePrompter('No level meter. Prompts are off.');
     }
     renderStatus();
   }
@@ -842,6 +981,7 @@
     if (onset !== null && (onset <= pace.at || onset === usedOnset)) onset = null;
     if (onset !== null) usedOnset = onset;
     pace = Pace.observe(pace, follow.cursor, now, onset, meterWorks() ? speechClock : now);
+    if (earOn) earHeard(now);
     renderStatus();
   }
 
@@ -850,11 +990,15 @@
       meterWarning = 'level meter stopped: pauses may overshoot';
       meter.close();
       meter = null;
+      leaveVoicePrompter('Level meter stopped. Prompts are off.');
     }
     return Boolean(meter);
   }
 
-  // listen feeds the voice activity log once per frame.
+  // listen feeds the voice activity log once per frame. The voice prompter
+  // does not count sound while a prompt plays, and shortly after, as the
+  // presenter: it may be the prompt. The log keeps it, so a presenter who
+  // talks through a prompt is still followed as talking.
   function listen(t, dt) {
     if (!dt || !meterWorks()) return;
     const r = Vad.detect(detector, meter.level(), t, dt);
@@ -862,6 +1006,10 @@
     loudNow = r.loud;
     Vad.record(voicedLog, t - dt, t, r.voiced);
     if (r.voiced) speechClock += dt;
+    const w = speaker.window();
+    if (t >= w.start && t <= w.end + ECHO) return;
+    if (r.voiced) heardSincePrompt += dt;
+    if (r.loud) heardAt = t;
   }
 
   // glide moves the target toward the word being said right now, projected
@@ -911,6 +1059,8 @@
     spoken = null;
     highlight(-1);
     voice.reset();
+    ladder = VoicePrompter.create(); // a new place: prompts start over there
+    if (earOn) earJump(anchor);
   }
 
   // ---- Recall practice ------------------------------------------------------
@@ -930,19 +1080,275 @@
     spans[i]?.classList.replace('recall-miss', 'recall-ok');
   }
 
-  // hintNext reveals the next hidden word from the highlight on, for when
-  // the presenter is stuck. A hint is not a recall: it shows uncoloured.
+  // hintNext helps a presenter who is stuck (R). With the voice prompter it
+  // says the next words; with recall practice it reveals the next hidden
+  // word from the highlight on. A hint is not a recall: it shows uncoloured.
   function hintNext() {
+    if (voicePrompter) promptNow();
+    if (earOn) earRepeat();
     if (!settings.recall) return;
     const from = voiceFailed ? currentWord() : Math.max(highlighted, follow.cursor + 1);
     const i = spans.findIndex((s, k) => k >= from && s.classList.contains('recall'));
-    if (i === -1) return flash('no hidden words ahead');
+    if (i === -1) {
+      if (!voicePrompter) flash('no hidden words ahead');
+      return;
+    }
     show(i, 'hinted');
   }
 
   function show(i, kind) {
     spans[i]?.classList.replace('recall', kind);
   }
+
+  // ---- Voice prompter -------------------------------------------------------
+
+  // enterVoicePrompter sets the voice prompter up as the prompter opens.
+  function enterVoicePrompter() {
+    ladder = VoicePrompter.create();
+    heardAt = -Infinity;
+    heardSincePrompt = 0;
+    announced = false;
+    troubleSaid = false;
+    hiddenSaid = false;
+    output = { start: '', now: '' };
+    if (voicePrompter) watchOutput();
+  }
+
+  // leaveVoicePrompter stops prompting when it cannot work, and says why out
+  // loud: the presenter may not be looking at the screen.
+  function leaveVoicePrompter(why) {
+    if (!voicePrompter) return;
+    voicePrompter = false;
+    speaker.say(why);
+    notify('voice-prompter', why);
+  }
+
+  // promptStall prompts a presenter who has gone quiet (see
+  // VoicePrompter.step), and says what they would otherwise only see on
+  // screen: ready, prompts off.
+  function promptStall(t) {
+    if (!announced && ready() && meter) {
+      announced = true;
+      speaker.say('Ready');
+    }
+    announceTrouble(t);
+    const r = VoicePrompter.step(ladder, {
+      next: promptable(t) ? resumeWord() : null,
+      now: t,
+      quietSince: Math.max(heardAt, speaker.window().end + ECHO),
+      spoke: heardSincePrompt >= SPOKE,
+      words: doc.words,
+      after: settings.promptAfter,
+    });
+    ladder = r.state;
+    if (r.say) prompt(r.say);
+  }
+
+  // promptable is whether a stall can be prompted now: the talk is under way
+  // and followed, the level meter can tell silence, the place is known and
+  // the sound still plays where it did. Near the end it stays quiet: the
+  // last words are often not recognized, and a prompt would go into the
+  // applause.
+  function promptable(t) {
+    if (!engaged || !hearing(t) || !meterWorks() || finished() || speaker.speaking()) return false;
+    if (follow.cursor >= spans.length - 1 - END_WORDS) return false;
+    return !soundMoved() && !lost(t);
+  }
+
+  // hearing is whether recognition runs, through the restarts it makes on
+  // its own in a silence: a gap shorter than RESTART_GAP does not count, or
+  // the long wait before a paragraph would never be reached. A recoverable
+  // error does not stop prompts: where the presenter is stays known. Paused
+  // with Space, it is not hearing.
+  function hearing(t) {
+    return voice.active() && (listening || t - deafSince < RESTART_GAP);
+  }
+
+  // lost is true once the presenter has talked LOST seconds since the last
+  // match: an ad-lib, a long skip, or recognition stalled without an error.
+  // A prompt then could be a word from minutes ago; silence is better.
+  function lost(t) {
+    return pace.index !== null && Vad.voicedBetween(voicedLog, pace.at, t) > LOST;
+  }
+
+  // announceTrouble says when recognition has been down OFF_AFTER seconds
+  // (not when paused with Space), and when it is back. Recognition that
+  // fails and restarts quickly over and over never adds up to that; prompts
+  // then still come at the known place.
+  function announceTrouble(t) {
+    const watching = engaged && !finished() && voice.active();
+    if (!watching) troubleSaid = false;
+    else if (!listening && t - deafSince >= OFF_AFTER) {
+      if (!troubleSaid) speaker.say('Prompts off');
+      troubleSaid = true;
+    } else if (listening && troubleSaid) {
+      troubleSaid = false;
+      speaker.say('Prompts on');
+    }
+  }
+
+  // prompt says words [from, to].
+  function prompt(range) {
+    speaker.say(VoicePrompter.text(doc.words, range));
+    heardSincePrompt = 0;
+  }
+
+  // promptNow says the cue on request (R). Before the talk it says the
+  // words to start from, which also tests where the sound plays in the room,
+  // even where prompts are paused because the sound moved. If the presenter
+  // stays quiet, the phrase follows as after a stall.
+  function promptNow() {
+    const i = engaged ? resumeWord() : anchor;
+    prompt(VoicePrompter.cue(doc.words, i));
+    ladder = { ...ladder, word: i, level: 1 };
+  }
+
+  // soundMoved is true when sound no longer plays on the device it played
+  // on when the talk started (HDMI plugged in, earphones out): prompts
+  // pause rather than play to the hall, and resume when it moves back.
+  function soundMoved() {
+    return Boolean(output.start) && output.now !== output.start;
+  }
+
+  // watchOutput reads where sound plays, where the browser tells. The first
+  // device it names is where prompts belong.
+  function watchOutput() {
+    navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices) => {
+        const label = devices.find((d) => d.kind === 'audiooutput' && d.deviceId === 'default')?.label ?? '';
+        output = { start: output.start || label, now: label };
+        if (soundMoved()) notify('output', `Sound moved to ${label || 'another device'}: prompts paused until it is back on ${output.start}.`);
+        renderStatus();
+      })
+      .catch((err) => console.error('voice prompter: cannot tell where sound plays', err));
+  }
+
+  navigator.mediaDevices?.addEventListener('devicechange', () => {
+    if (active && voicePrompter) watchOutput();
+  });
+
+  // ---- Talk in ear ----------------------------------------------------------
+
+  // enterEar sets talk in ear up as the prompter opens. When the voice
+  // prompter is on too, talk in ear wins: two voices in one ear.
+  function enterEar() {
+    earOn = settings.ear && earSpeaker.available() && Voice.supported();
+    if (settings.ear && !earOn) {
+      const why = !Voice.supported()
+        ? 'this browser cannot follow your voice'
+        : earSpeaker.state().kind === 'loading'
+          ? 'the voice was still loading; leave and start again'
+          : earSpeaker.state().detail;
+      notify('ear', `Talk in ear is off: ${why}.`);
+    }
+    if (earOn && voicePrompter) {
+      voicePrompter = false;
+      notify('voice-prompter', 'Voice prompter is off: talk in ear is on.');
+    }
+  }
+
+  // leaveEar stops the voice. Given a reason, talk in ear is off for the
+  // rest of the talk, and says why out loud: the presenter may not be
+  // looking at the screen. With talk in ear off it does nothing: stopping
+  // cancels all speech, the voice prompter's warnings too.
+  function leaveEar(why = '') {
+    if (!earOn) return;
+    earHalt();
+    if (!why) return;
+    earOn = false;
+    earSpeaker.say(why, 1, { began() {}, ended() {}, halted() {}, failed: (err) => console.error(`talk in ear: ${err}`) });
+    notify('ear', why);
+  }
+
+  // earHalt stops the voice at once; the words it was saying are said again
+  // when it goes on.
+  function earHalt() {
+    earSpeaker.stop();
+    ear = Ear.halt(ear);
+  }
+
+  // talkInEar reads the next words when there is room ahead of the presenter
+  // (see Ear.next), at their pace, held to the target. It reads only while
+  // recognition listens: unfollowed, the voice could not wait for them.
+  function talkInEar(t) {
+    const r = Ear.check(ear, t);
+    ear = r.state;
+    if (r.echo) return leaveEar('I can hear myself. Talk in ear is off.');
+    if (finished()) {
+      if (ear.saying) earHalt();
+      return;
+    }
+    const presenter = earPresenter();
+    const saying = ear.saying;
+    ear = Ear.overtake(ear, presenter, t);
+    if (saying && !ear.saying) earSpeaker.stop(); // they passed it: what it says is behind them
+    if (!voice.active() || !listening) return;
+    const say = Ear.next(ear, {
+      presenter,
+      pace: pace.index === null ? optimalRate() : Pace.pace(pace, hold),
+      lead: settings.earLead,
+      words: doc.words,
+    });
+    if (!say) return;
+    ear = Ear.started(ear, say, t);
+    earSpeaker.say(Ear.text(doc.words, say.from, say.to), say.rate, {
+      began: (start) => {
+        ear = Ear.began(ear, start);
+      },
+      ended: (start, end) => {
+        ear = Ear.ended(ear, start, end);
+      },
+      // Interrupted by something else (an audio device change): said again.
+      halted: () => {
+        ear = Ear.halt(ear);
+      },
+      failed: (why) => leaveEar(`The voice failed: ${why}. Talk in ear is off.`),
+    });
+  }
+
+  // earPresenter is the word the presenter is on: the highlight, which
+  // allows for recognition running behind them. Without a level meter the
+  // highlight stays ahead in a pause, so it is the word after the last one
+  // recognized. Before they are picked up, the word to start from.
+  function earPresenter() {
+    if (!engaged) return anchor;
+    const next = follow.cursor + 1;
+    return meter ? Math.max(highlighted, next) : next;
+  }
+
+  // earHeard checks each move of the follower for the voice hearing itself
+  // (see Ear.heard). A probe holds the voice still, so the words playing
+  // stop.
+  function earHeard(now) {
+    const probing = ear.probe;
+    ear = Ear.heard(ear, follow.cursor, now, pace.latency);
+    if (!probing && ear.probe) earSpeaker.stop();
+    renderStatus();
+  }
+
+  // earJump moves the voice to word after a manual jump.
+  function earJump(word) {
+    earSpeaker.stop();
+    ear = Ear.jump(ear, word);
+  }
+
+  // earRepeat reads again from where the presenter is (R): the opening
+  // missed while walking on stage, or the words they lost.
+  function earRepeat() {
+    earJump(earPresenter());
+  }
+
+  // earAhead is how many words the voice has read past the presenter.
+  function earAhead() {
+    return Math.max(0, ear.said + 1 - earPresenter());
+  }
+
+  // Hidden, the loop stops but an utterance would play on: stop it. It is
+  // said again on return.
+  document.addEventListener('visibilitychange', () => {
+    if (active && earOn && document.visibilityState === 'hidden') earHalt();
+  });
 
   // ---- Controls -------------------------------------------------------------
 
@@ -962,8 +1368,10 @@
       if (playing) startTimer();
       return renderStatus();
     }
-    if (voice.active()) voice.stop();
-    else {
+    if (voice.active()) {
+      voice.stop();
+      if (earOn) earHalt(); // paused: the voice stops at once, not on the next frame
+    } else {
       voiceError = '';
       voice.start();
     }
@@ -982,7 +1390,8 @@
 
   // statusKey is what the status line reports that changes on its own.
   function statusKey() {
-    return voiceFailed ? `${playing}|${Math.round(optimalRate() * 60)}` : `${hold < pace.rate}`;
+    if (voiceFailed) return `${playing}|${Math.round(optimalRate() * 60)}`;
+    return `${hold < pace.rate}|${voicePrompter}|${voicePrompter && lost(performance.now() / 1000)}|${earOn && `${earAhead()}${Boolean(ear.probe)}`}`;
   }
 
   function renderStatus() {
@@ -995,6 +1404,17 @@
       if (hold < pace.rate) text += ' · held to target';
     }
     if (settings.recall) text = `recall ${settings.recallPercent}% hidden · R reveals · ${text}`;
+    if (voicePrompter) {
+      let about = `voice prompter · prompts after ${settings.promptAfter} s · R says the next words`;
+      about += output.now ? ` · sound on ${output.now}` : ' · sound device not watched';
+      if (soundMoved()) about += ' · paused: sound moved';
+      else if (lost(performance.now() / 1000)) about += ' · lost: prompts wait for your place';
+      text = `${about} · ${text}`;
+    }
+    if (earOn) {
+      const about = ear.probe ? 'checking it does not hear itself' : `${earAhead()} of ${settings.earLead} words ahead`;
+      text = `talk in ear · ${about} · R reads again · ${text}`;
+    }
     if (meterWarning) text += ` · ${meterWarning}`;
     const problem = [voiceError, screenWarning, wakeWarning].filter(Boolean).join(' · ');
     ui.status.textContent = [flashText, problem, text].filter(Boolean).join(' · ');
@@ -1075,6 +1495,29 @@
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (active && !wakeLock && document.visibilityState === 'visible') lockScreen();
+    if (!active) return;
+    const visible = document.visibilityState === 'visible';
+    if (visible && !wakeLock) lockScreen();
+    // Hidden, the browser stops the loop: on return the first frame must not
+    // count the time away as one step, nor the voice prompter take it for a
+    // stall.
+    if (visible) {
+      lastFrame = 0;
+      ladder = { ...ladder, armed: false };
+    }
+    if (!voicePrompter) return;
+    // Safari hides the page for a moment while it goes fullscreen: only a
+    // page that stays hidden is said to be.
+    clearTimeout(hiddenTimer);
+    if (!visible) {
+      hiddenTimer = setTimeout(() => {
+        if (document.visibilityState !== 'hidden') return;
+        hiddenSaid = true;
+        speaker.say('Prompter hidden. Prompts are off.');
+      }, HIDDEN_FOR * 1000);
+    } else if (hiddenSaid) {
+      hiddenSaid = false;
+      speaker.say('Prompts on');
+    }
   });
 })();
